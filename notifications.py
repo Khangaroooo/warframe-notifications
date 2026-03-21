@@ -1,7 +1,6 @@
 import os
 import discord
 import aiohttp
-import asyncio
 from discord.ext import tasks, commands
 from datetime import datetime
 from dateutil import tz
