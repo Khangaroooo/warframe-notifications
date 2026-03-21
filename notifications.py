@@ -107,17 +107,3 @@ if __name__ == "__main__":
         bot.run(TOKEN)
     else:
         print("Error: No DISCORD_TOKEN found in .env file.")
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
