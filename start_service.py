@@ -1,7 +1,6 @@
 import subprocess
 import os
 import psutil
-import time
 from dotenv import load_dotenv
 
 # Load variables from .env file
@@ -12,16 +11,18 @@ SCRIPT_TO_RUN = os.getenv('SCRIPT_TO_RUN')  # The file you want to execute
 INTERPRETER = os.getenv('INTERPRETER')      # or 'python3'
 
 def kill_existing_process(script_name):
-    """Clean up any old bot instances."""
-    for proc in psutil.process_iter(['pid', 'cmdline']):
+    """Search for and terminate any running instance of the script."""
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
-            if proc.info['cmdline'] and script_name in " ".join(proc.info['cmdline']):
-                if proc.info['pid'] != os.getpid():
-                    proc.terminate()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            # Check if the process is python and the script name is in the arguments
+            if proc.info['cmdline'] and script_name in proc.info['cmdline']:
+                print(f"Terminating existing process (PID: {proc.info['pid']})...")
+                proc.terminate()
+                proc.wait(timeout=5)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
             continue
 
-def update_repo(path, retries=5, delay=10):
+def update_repo(path, retries=5, delay=15):
     """Try to pull updates, retrying if DNS/Network isn't ready yet."""
     for i in range(retries):
         print(f"Checking for updates (Attempt {i+1}/{retries})...")
@@ -38,18 +39,18 @@ def update_repo(path, retries=5, delay=10):
     print("❌ Failed to update after multiple attempts. Starting bot with local code.")
     return False
 
-def start_bot(path, script):
-    """Launch the bot in the background."""
+def start_script(path, script):
+    """Launch the script as a background process."""
     script_path = os.path.join(path, script)
-    print(f"🚀 Launching {script}...")
-    # Using Popen so the manager can exit if needed, 
-    # but we'll use 'RemainAfterExit=yes' in systemd to keep it clean.
-    subprocess.Popen([INTERPRETER, script_path], cwd=path)
+    print(f"Starting {script}...")
+    # Use Popen so the manager script doesn't block while the target runs
+    subprocess.Popen([INTERPRETER, script_path])
 
 if __name__ == "__main__":
-    # Ensure we are working with an absolute path string
-    path_to_use = str(REPO_PATH)
-    
+    # 1. Kill any old versions running
     kill_existing_process(SCRIPT_TO_RUN)
-    update_repo(path_to_use)
-    start_bot(path_to_use, SCRIPT_TO_RUN)
+    
+    # 2. Pull the latest code
+    if update_repo(REPO_PATH):
+        # 3. Start the new version
+        start_script(REPO_PATH, SCRIPT_TO_RUN)
