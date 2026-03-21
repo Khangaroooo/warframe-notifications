@@ -51,6 +51,5 @@ if __name__ == "__main__":
     kill_existing_process(SCRIPT_TO_RUN)
     
     # 2. Pull the latest code
-    if update_repo(REPO_PATH):
-        # 3. Start the new version
-        start_script(REPO_PATH, SCRIPT_TO_RUN)
+    update_repo(REPO_PATH)
+    start_script(REPO_PATH, SCRIPT_TO_RUN)
