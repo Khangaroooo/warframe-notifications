@@ -1,9 +1,10 @@
 import subprocess
 import os
-import signal
 import psutil
-import time
+from dotenv import load_dotenv
 
+# Load variables from .env file
+load_dotenv()
 # --- Configuration ---
 REPO_PATH = os.getenv('REPO_PATH')
 SCRIPT_TO_RUN = os.getenv('SCRIPT_TO_RUN')  # The file you want to execute
