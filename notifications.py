@@ -65,8 +65,9 @@ class FissureBot(commands.Bot):
             is_steel_path = fissure.get('hard') is True  # Added hard check
             is_not_omnia = fissure.get('tier') != "Omnia"
             is_not_requiem = fissure.get('tier') != "Requiem"
+            is_corrupted = fissure.get('faction') = "Corrupted"
 
-            if is_survival and is_steel_path and is_not_omnia and is_not_requiem:
+            if is_survival and is_steel_path and is_not_omnia and is_not_requiem and is_corrupted:
                 if f_id not in self.seen_fissures:
                     # Map new keys from tenno.tools API
                     node = fissure.get('location', 'Unknown Node')
