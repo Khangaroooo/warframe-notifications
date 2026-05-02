@@ -1,7 +1,7 @@
 import os
-import discord
+import asyncio
 import aiohttp
-from discord.ext import tasks, commands
+import discord
 from datetime import datetime
 from dateutil import tz
 from dotenv import load_dotenv
@@ -10,76 +10,55 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Configuration from Environment ---
-TOKEN = os.getenv('DISCORD_TOKEN')
-CHANNEL_ID = int(os.getenv('CHANNEL_ID')) 
-# New API URL
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')
 API_URL = "https://api.tenno.tools/worldstate/pc/fissures"
-INTERVAL = int(os.getenv('CHECK_INTERVAL', 5))
+INTERVAL = int(os.getenv('CHECK_INTERVAL', 5)) * 60  # Convert minutes to seconds
 
-class FissureBot(commands.Bot):
+class FissureMonitor:
     def __init__(self):
-        intents = discord.Intents.default()
-        super().__init__(command_prefix="!", intents=intents)
         self.seen_fissures = set()
+        self.to_zone = tz.gettz('America/New_York')
 
-    async def setup_hook(self):
-        self.check_fissures.start()
+    async def fetch_fissures(self, session):
+        """Fetch current fissures from Tenno.tools"""
+        try:
+            async with session.get(API_URL) as response:
+                if response.status == 200:
+                    raw_data = await response.json()
+                    return raw_data.get('fissures', {}).get('data', [])
+                else:
+                    print(f"[{datetime.now()}] API Error: {response.status}")
+        except Exception as e:
+            print(f"[{datetime.now()}] Connection Error: {e}")
+        return []
 
-    async def on_ready(self):
-        print(f'Logged in as {self.user}')
-        channel = self.get_channel(CHANNEL_ID)
-        if channel:
-            await channel.send("🚀 **Warframe Fissure Monitor (Tenno.tools) is Online.**\n"
-                               f"Monitoring for **Steel Path Survival** every {INTERVAL} minutes...")
-        else:
-            print(f"Error: Could not find channel {CHANNEL_ID}.")
-
-    @tasks.loop(minutes=INTERVAL)
-    async def check_fissures(self):
-        channel = self.get_channel(CHANNEL_ID)
-        if not channel:
-            return
-
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(API_URL) as response:
-                    if response.status == 200:
-                        raw_data = await response.json()
-                        # tenno.tools nests the list inside fissures -> data
-                        fissure_list = raw_data.get('fissures', {}).get('data', [])
-                        await self.process_fissures(fissure_list, channel)
-                    else:
-                        print(f"API Error: {response.status}")
-            except Exception as e:
-                print(f"Connection Error: {e}")
-
-    async def process_fissures(self, fissures, channel):
+    async def process_fissures(self, fissures, webhook):
+        """Filter and send notifications via Webhook"""
         current_ids = {f.get('id') for f in fissures}
-        to_zone = tz.gettz('America/New_York') # EST/EDT
-
+        
         for fissure in fissures:
             f_id = fissure.get('id')
             
             # Filtering logic
             is_survival = fissure.get('missionType') == "Survival"
-            is_steel_path = fissure.get('hard') is True  # Added hard check
+            is_steel_path = fissure.get('hard') is True
             is_not_omnia = fissure.get('tier') != "Omnia"
             is_not_requiem = fissure.get('tier') != "Requiem"
             is_corrupted = fissure.get('faction') == "Corrupted"
 
-            if is_survival and is_steel_path and is_not_omnia and is_not_requiem and is_corrupted:
+            if all([is_survival, is_steel_path, is_not_omnia, is_not_requiem, is_corrupted]):
                 if f_id not in self.seen_fissures:
-                    # Map new keys from tenno.tools API
                     node = fissure.get('location', 'Unknown Node')
                     faction = fissure.get('faction', 'Unknown Faction')
                     tier = fissure.get('tier', 'Unknown Tier')
                     
-                    # Handle Unix Timestamp (int) conversion
+                    # Time conversion
                     expiry_timestamp = fissure.get('end')
                     expiry_dt = datetime.fromtimestamp(expiry_timestamp, tz=tz.tzutc())
-                    expiry_est = expiry_dt.astimezone(to_zone)
+                    expiry_est = expiry_dt.astimezone(self.to_zone)
                     time_str = expiry_est.strftime('%I:%M:%S %p EST')
 
+                    # Create Embed
                     embed = discord.Embed(
                         title="🔥 Steel Path Survival Detected!",
                         description="A new high-tier survival fissure is active.",
@@ -92,19 +71,33 @@ class FissureBot(commands.Bot):
                     embed.add_field(name="🕒 Expires At", value=f"**{time_str}**", inline=False)
                     embed.set_footer(text="Warframe Fissure Tracker | Tenno.tools API")
                     
-                    await channel.send(embed=embed)
+                    # Send via Webhook
+                    await webhook.send(embed=embed, username="Fissure Monitor")
                     self.seen_fissures.add(f_id)
 
-        # Cleanup expired IDs to keep memory usage low
+        # Cleanup expired IDs
         self.seen_fissures = self.seen_fissures.intersection(current_ids)
 
-    @check_fissures.before_loop
-    async def before_check(self):
-        await self.wait_until_ready()
+    async def start(self):
+        """Main execution loop"""
+        print(f"🚀 Fissure Monitor Started. Interval: {INTERVAL/60} minutes.")
+        
+        async with aiohttp.ClientSession() as session:
+            webhook = discord.Webhook.from_url(WEBHOOK_URL, session=session)
+            
+            while True:
+                fissures = await self.fetch_fissures(session)
+                if fissures:
+                    await self.process_fissures(fissures, webhook)
+                
+                await asyncio.sleep(INTERVAL)
 
 if __name__ == "__main__":
-    if TOKEN:
-        bot = FissureBot()
-        bot.run(TOKEN)
+    if not WEBHOOK_URL:
+        print("Error: WEBHOOK_URL not found in .env file.")
     else:
-        print("Error: No DISCORD_TOKEN found in .env file.")
+        monitor = FissureMonitor()
+        try:
+            asyncio.run(monitor.start())
+        except KeyboardInterrupt:
+            print("Monitor stopped.")
