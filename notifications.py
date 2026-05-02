@@ -82,6 +82,17 @@ class FissureMonitor:
         """Main execution loop"""
         print(f"🚀 Fissure Monitor Started. Interval: {INTERVAL/60} minutes.")
         
+
+        try:
+            await webhook.send(
+                content=f"🚀 **Warframe Fissure Monitor (Tenno.tools) is Online.**\n"
+                        f"Monitoring for **Steel Path Survival** every {int(INTERVAL/60)} minutes...",
+                username="Fissure Monitor"
+            )
+        except Exception as e:
+            print(f"Failed to send startup notification: {e}")
+
+        
         async with aiohttp.ClientSession() as session:
             webhook = discord.Webhook.from_url(WEBHOOK_URL, session=session)
             
